@@ -7,6 +7,7 @@ if (!isset($_SESSION['username'])) {
     exit();
 }
 
+$activePage = '';
 $username = $_SESSION['username'];
 $success = '';
 $error = '';
@@ -21,7 +22,7 @@ $stmt->close();
 // Handle password change
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $current_password = $_POST['current_password'];
-    $new_password = $_POST['new_password'];
+    $new_password     = $_POST['new_password'];
     $confirm_password = $_POST['confirm_password'];
 
     if (!password_verify($current_password, $user['password'])) {
@@ -34,107 +35,122 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $hashed = password_hash($new_password, PASSWORD_DEFAULT);
         $stmt = $conn->prepare("UPDATE users SET password = ? WHERE username = ?");
         $stmt->bind_param("ss", $hashed, $username);
-        if ($stmt->execute()) {
-            $success = "Password updated successfully.";
-        } else {
-            $error = "Something went wrong. Please try again.";
-        }
+        $success = $stmt->execute() ? "Password updated successfully." : "Something went wrong. Please try again.";
         $stmt->close();
     }
 }
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Profile — Panja Trading</title>
+    <meta charset="UTF-8">
+    <title>Profile – Panja Trading</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
 </head>
-<body class="page-wrapper">
+<body>
+<div class="app-shell">
+    <?php include 'includes/sidebar.php'; ?>
 
-<nav>
-    <span class="nav-brand">Panja Trading</span>
-    <div class="nav-actions">
-        <a href="dashboard.php" class="btn btn-ghost btn-sm">← Dashboard</a>
-        <a href="logout.php" class="btn btn-secondary btn-sm">↗ Logout</a>
-    </div>
-</nav>
-
-<div class="page-header">
-    <h1 class="page-title">Profile</h1>
-</div>
-
-<div class="content" style="max-width:600px">
-
-    <!-- User Info Card -->
-    <div class="panel" style="margin-bottom:20px">
-        <div class="panel-title">Account Info</div>
-
-        <div style="display:flex;align-items:center;gap:20px;margin-bottom:20px">
-            <!-- Avatar -->
-            <div style="width:64px;height:64px;border-radius:50%;background:var(--accent-dim);
-                        border:2px solid var(--accent);display:flex;align-items:center;
-                        justify-content:center;font-family:var(--font-head);font-size:1.6rem;
-                        font-weight:700;color:var(--accent);flex-shrink:0">
-                <?= strtoupper(substr($user['username'], 0, 1)) ?>
-            </div>
-            <div>
-                <div style="font-family:var(--font-head);font-size:1.3rem;font-weight:700;
-                            text-transform:uppercase;letter-spacing:.05em">
-                    <?= htmlspecialchars($user['username']) ?>
-                </div>
-                <div>
-                    <span class="badge badge-blue" style="margin-top:4px">
-                        <?= htmlspecialchars($user['role'] ?? 'Staff') ?>
-                    </span>
-                </div>
+    <div class="main-area">
+        <div class="topbar">
+            <div class="topbar-title">Profile</div>
+            <div class="topbar-actions">
+                <a href="dashboard.php" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Dashboard
+                </a>
+                <a href="logout.php" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-box-arrow-right"></i> Logout
+                </a>
             </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div>
-                <div style="font-size:.72rem;color:var(--text-2);text-transform:uppercase;
-                            letter-spacing:.06em;margin-bottom:3px">Username</div>
-                <div style="font-weight:500"><?= htmlspecialchars($user['username']) ?></div>
+        <div class="page-content">
+
+            <?php if ($success): ?>
+            <div class="alert-banner" style="background:#e8f5e9; border-color:#a5d6a7; max-width:600px;">
+                <i class="bi bi-check-circle-fill" style="color:#2e7d32;"></i>
+                <span style="color:#1b5e20;"><?= $success ?></span>
             </div>
-            <div>
-                <div style="font-size:.72rem;color:var(--text-2);text-transform:uppercase;
-                            letter-spacing:.06em;margin-bottom:3px">Role</div>
-                <div style="font-weight:500"><?= htmlspecialchars($user['role'] ?? 'Staff') ?></div>
+            <?php endif; ?>
+
+            <?php if ($error): ?>
+            <div class="alert-banner" style="background:#fce8e8; border-color:#f5c6c6; max-width:600px;">
+                <i class="bi bi-exclamation-circle-fill" style="color:#c62828;"></i>
+                <span style="color:#c62828;"><?= $error ?></span>
             </div>
+            <?php endif; ?>
+
+            <!-- Account Info -->
+            <div class="card-section" style="max-width:600px;">
+                <div class="card-section-header">
+                    <span class="section-title"><i class="bi bi-person-circle"></i> Account Info</span>
+                </div>
+                <div style="padding: 24px;">
+                    <div class="d-flex align-items-center gap-4 mb-4">
+                        <!-- Avatar -->
+                        <div style="width:64px; height:64px; border-radius:50%;
+                                    background:rgba(79,140,255,0.15); border:2px solid #4f8cff;
+                                    display:flex; align-items:center; justify-content:center;
+                                    font-size:24px; font-weight:700; color:#4f8cff; flex-shrink:0;">
+                            <?= strtoupper(substr($user['username'], 0, 1)) ?>
+                        </div>
+                        <div>
+                            <div style="font-size:18px; font-weight:700; color:#1e2a3a;">
+                                <?= htmlspecialchars($user['username']) ?>
+                            </div>
+                            <span class="pill" style="background:#e8f0fe; color:#1a56db; margin-top:4px; display:inline-block;">
+                                <?= htmlspecialchars($user['role'] ?? 'Staff') ?>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="stat-label">Username</div>
+                            <div class="item-name"><?= htmlspecialchars($user['username']) ?></div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="stat-label">Role</div>
+                            <div class="item-name"><?= htmlspecialchars($user['role'] ?? 'Staff') ?></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Change Password -->
+            <div class="card-section" style="max-width:600px;">
+                <div class="card-section-header">
+                    <span class="section-title"><i class="bi bi-shield-lock"></i> Change Password</span>
+                </div>
+                <div style="padding: 24px;">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Current Password</label>
+                            <input type="password" name="current_password" class="form-control"
+                                   placeholder="Enter current password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">New Password</label>
+                            <input type="password" name="new_password" class="form-control"
+                                   placeholder="At least 6 characters" required>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label fw-semibold">Confirm New Password</label>
+                            <input type="password" name="confirm_password" class="form-control"
+                                   placeholder="Repeat new password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg"></i> Update Password
+                        </button>
+                    </form>
+                </div>
+            </div>
+
         </div>
     </div>
-
-    <!-- Change Password -->
-    <div class="panel">
-        <div class="panel-title">Change Password</div>
-
-        <?php if ($success) echo "<div class='alert alert-success'>$success</div>"; ?>
-        <?php if ($error)   echo "<div class='alert alert-error'>$error</div>"; ?>
-
-        <form method="POST">
-            <div class="form-group">
-                <label>Current Password</label>
-                <input type="password" name="current_password"
-                       placeholder="Enter current password" required>
-            </div>
-            <div class="form-group">
-                <label>New Password</label>
-                <input type="password" name="new_password"
-                       placeholder="At least 6 characters" required>
-            </div>
-            <div class="form-group">
-                <label>Confirm New Password</label>
-                <input type="password" name="confirm_password"
-                       placeholder="Repeat new password" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Update Password</button>
-        </form>
-    </div>
-
 </div>
-
 </body>
 </html>

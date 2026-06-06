@@ -1,139 +1,122 @@
 <?php
 session_start();
 include 'config.php';
+$activePage = 'inventory';
 ?>
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Inventory — Panja Trading</title>
+    <meta charset="UTF-8">
+    <title>Inventory – Panja Trading</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
 </head>
-<body class="page-wrapper">
+<body>
+<div class="app-shell">
+    <?php include 'includes/sidebar.php'; ?>
 
-<nav>
-    <span class="nav-brand">Panja Trading</span>
-    <div class="nav-actions">
-        <a href="add_workshop_usage.php" class="btn btn-secondary btn-sm">Workshop Usage</a>
-        <a href="dashboard.php" class="btn btn-ghost btn-sm">← Dashboard</a>
-    </div>
-</nav>
-
-<div class="page-header">
-    <h1 class="page-title">Inventory</h1>
-</div>
-
-<div class="content">
-
-    <!-- Search & Stats -->
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px">
-        <input type="text" id="searchInput"
-               placeholder="Search by part name or category..."
-               style="max-width:320px">
-        <div class="stat-chips">
-            <div class="stat-chip">
-                <div class="value" id="totalCount">—</div>
-                <div class="label">Total Parts</div>
+    <div class="main-area">
+        <div class="topbar">
+            <div class="topbar-title">Inventory</div>
+            <div class="topbar-actions">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search parts or supplier...">
+                <a href="add_workshop_usage.php" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-hammer"></i> Workshop Usage
+                </a>
+                <a href="add_stock.php" class="btn btn-sm btn-primary">
+                    <i class="bi bi-plus-lg"></i> Add Stock
+                </a>
             </div>
-            <div class="stat-chip">
-                <div class="value" id="lowCount" style="color:var(--accent-2)">—</div>
-                <div class="label">Low Stock</div>
+        </div>
+
+        <div class="page-content">
+            <div class="card-section">
+                <div class="table-responsive">
+                    <table class="data-table" id="inventoryTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Part Name</th>
+                                <th>Category</th>
+                                <th>Quantity</th>
+                                <th>Status</th>
+                                <th>Purchase Price</th>
+                                <th>Selling Price</th>
+                                <th>Supplier</th>
+                                <th>Added On</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stock-body">
+                            <tr>
+                                <td colspan="10" class="text-center py-4 text-muted">
+                                    <i class="bi bi-arrow-clockwise"></i> Loading...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
-
-    <!-- Table -->
-    <div class="table-wrapper">
-        <table id="inventoryTable">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Part Name</th>
-                    <th>Category</th>
-                    <th>Quantity</th>
-                    <th>Realtime Qty</th>
-                    <th>Usage Stats</th>
-                    <th>Reorder Alert</th>
-                    <th>Purchase Price</th>
-                    <th>Selling Price</th>
-                    <th>Supplier</th>
-                    <th>Added On</th>
-                </tr>
-            </thead>
-            <tbody id="stock-body"></tbody>
-        </table>
-    </div>
-
 </div>
 
 <script>
-    let isSearching = false;
+let isSearching = false;
 
-    function fetchStock() {
-        if (isSearching) return;
+function getStatusPill(qty) {
+    qty = parseInt(qty);
+    if (qty === 0)  return '<span class="pill pill-out">Out</span>';
+    if (qty < 5)    return '<span class="pill pill-low">Low</span>';
+    return '<span class="pill pill-ok">In Stock</span>';
+}
 
-        fetch('get_stock.php')
-            .then(response => response.json())
-            .then(data => {
-                const tbody = document.getElementById('stock-body');
-                tbody.innerHTML = "";
+function fetchStock() {
+    if (isSearching) return;
+    fetch('get_stock.php')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('stock-body');
+            tbody.innerHTML = '';
+            if (!data.length) {
+                tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4 text-muted">No items found.</td></tr>';
+                return;
+            }
+            data.forEach((item, index) => {
+                tbody.innerHTML += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td class="item-name">${item.part_name}</td>
+                    <td>${item.category ?? '—'}</td>
+                    <td>${item.quantity}</td>
+                    <td>${getStatusPill(item.quantity)}</td>
+                    <td>₹${parseFloat(item.purchase_price).toLocaleString('en-IN')}</td>
+                    <td>₹${parseFloat(item.selling_price).toLocaleString('en-IN')}</td>
+                    <td>${item.supplier ?? '—'}</td>
+                    <td>${new Date(item.added_on).toLocaleDateString('en-IN')}</td>
+                    <td>
+                        <a href="workshop_usage.php?part_id=${item.id}" class="icon-btn" title="View Usage">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                    </td>
+                </tr>`;
+            });
+        })
+        .catch(err => console.error('Error:', err));
+}
 
-                let lowCount = 0;
+window.onload = fetchStock;
+setInterval(fetchStock, 5000);
 
-                data.forEach((item, index) => {
-                    const isLow = item.quantity < 5;
-                    if (isLow) lowCount++;
-
-                    const reorderCell = isLow
-                        ? `<span class="badge badge-red">⚠ Low Stock</span>`
-                        : `<span class="text-muted">—</span>`;
-
-                    const qtyCell = isLow
-                        ? `<span style="color:var(--accent-2);font-weight:600">${item.quantity}</span>`
-                        : item.quantity;
-
-                    tbody.innerHTML += `
-                        <tr>
-                            <td class="text-muted">${index + 1}</td>
-                            <td style="font-weight:500">${item.part_name}</td>
-                            <td>${item.category}</td>
-                            <td>${qtyCell}</td>
-                            <td>${item.quantity}</td>
-                            <td>
-                                <a href="workshop_usage.php?part_id=${item.id}"
-                                   class="btn btn-ghost btn-sm">View Usage</a>
-                            </td>
-                            <td>${reorderCell}</td>
-                            <td>₹${parseFloat(item.purchase_price).toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
-                            <td>₹${parseFloat(item.selling_price).toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
-                            <td class="text-muted">${item.supplier}</td>
-                            <td class="text-muted">${new Date(item.added_on).toLocaleDateString('en-IN')}</td>
-                        </tr>`;
-                });
-
-                document.getElementById('totalCount').textContent = data.length;
-                document.getElementById('lowCount').textContent = lowCount;
-            })
-            .catch(error => console.error('Error fetching stock:', error));
-    }
-
-    window.onload = fetchStock;
-    const intervalId = setInterval(fetchStock, 5000);
-
-    const searchInput = document.getElementById('searchInput');
-    searchInput.addEventListener('keyup', function () {
-        const keyword = this.value.toLowerCase();
-        isSearching = keyword.trim().length > 0;
-
-        document.querySelectorAll("#stock-body tr").forEach(row => {
-            row.style.display = row.innerText.toLowerCase().includes(keyword) ? '' : 'none';
-        });
+document.getElementById('searchInput').addEventListener('keyup', function () {
+    const keyword = this.value.toLowerCase();
+    isSearching = keyword.trim().length > 0;
+    document.querySelectorAll('#stock-body tr').forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(keyword) ? '' : 'none';
     });
+});
 </script>
-
 </body>
 </html>
-
