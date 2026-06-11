@@ -1,5 +1,8 @@
 <?php
+session_start();
 include 'config.php';
+
+$activePage = 'workshop_usage';
 
 $filter = '';
 if (isset($_GET['part_id'])) {
@@ -7,93 +10,117 @@ if (isset($_GET['part_id'])) {
     $filter = "WHERE wu.part_id = $part_id";
 }
 
-
-$query = "SELECT wu.*, s.part_name 
-          FROM workshop_usage wu 
-          JOIN stock s ON wu.part_id = s.id 
+$query = "SELECT wu.*, s.part_name
+          FROM workshop_usage wu
+          JOIN stock s ON wu.part_id = s.id
           $filter
           ORDER BY wu.date_used DESC";
 $result = mysqli_query($conn, $query);
+$totalRows = mysqli_num_rows($result);
 ?>
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Workshop Usage — Panja Trading</title>
+    <meta charset="UTF-8">
+    <title>Workshop Usage – GearVault</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
 </head>
-<body class="page-wrapper">
+<body>
+<div class="app-shell">
+    <?php include 'includes/sidebar.php'; ?>
 
-<nav>
-    <span class="nav-brand">Panja Trading</span>
-    <div class="nav-actions">
-        <a href="inventory.php" class="btn btn-ghost btn-sm">← Inventory</a>
+    <div class="main-area">
+        <div class="topbar">
+            <div class="topbar-title">Workshop Usage History</div>
+            <div class="topbar-actions">
+                <input type="text" id="searchInput" class="search-input"
+                       placeholder="Search part or usage reason...">
+                <a href="add_workshop_usage.php" class="btn btn-sm btn-primary">
+                    <i class="bi bi-plus-lg"></i> Record Usage
+                </a>
+                <?php if (isset($_GET['part_id'])): ?>
+                <a href="workshop_usage.php" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-x-lg"></i> Clear Filter
+                </a>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="page-content">
+
+            <?php if (isset($_GET['part_id'])): ?>
+            <div class="alert-banner" style="background:#e8f0fe; border-color:#90b4f5;">
+                <i class="bi bi-funnel-fill" style="color:#1a56db;"></i>
+                <span style="color:#1a56db;">
+                    Showing usage filtered by part ID <strong><?= intval($_GET['part_id']) ?></strong>.
+                </span>
+                <a href="workshop_usage.php" class="ms-auto alert-link" style="color:#1a56db;">View All →</a>
+            </div>
+            <?php endif; ?>
+
+            <div class="card-section">
+                <div class="card-section-header">
+                    <span class="section-title"><i class="bi bi-hammer"></i> Usage Records</span>
+                    <span style="font-size:12px; color:#6b7a8d;" id="rowCount">
+                        <?= $totalRows ?> record<?= $totalRows !== 1 ? 's' : '' ?>
+                    </span>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table" id="usageTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Part Name</th>
+                                <th>Quantity Used</th>
+                                <th>Used For</th>
+                                <th>Date Used</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usageBody">
+                            <?php if ($totalRows > 0):
+                                $sn = 1;
+                                while ($row = mysqli_fetch_assoc($result)): ?>
+                            <tr>
+                                <td><?= $sn++ ?></td>
+                                <td class="item-name"><?= htmlspecialchars($row['part_name']) ?></td>
+                                <td><?= $row['quantity_used'] ?></td>
+                                <td><?= htmlspecialchars($row['used_for']) ?></td>
+                                <td><?= date('d M Y', strtotime($row['date_used'])) ?></td>
+                            </tr>
+                            <?php endwhile; else: ?>
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">
+                                    No usage records found.
+                                </td>
+                            </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
     </div>
-</nav>
-
-<div class="page-header">
-    <h1 class="page-title">Workshop Usage History</h1>
-</div>
-
-<div class="content">
-
-    <div style="margin-bottom:20px">
-        <input type="text" id="searchInput"
-               placeholder="Search by part name or usage reason..."
-               style="max-width:320px">
-    </div>
-
-    <div class="table-wrapper">
-        <table id="usageTable">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Part Name</th>
-                    <th>Quantity Used</th>
-                    <th>Used For</th>
-                    <th>Date Used</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php
-                $sn = 1;
-                if (mysqli_num_rows($result) > 0) {
-                    while ($row = mysqli_fetch_assoc($result)) {
-                        echo "<tr>";
-                        echo "<td class='text-muted'>{$sn}</td>";
-                        echo "<td style='font-weight:500'>" . htmlspecialchars($row['part_name']) . "</td>";
-                        echo "<td>{$row['quantity_used']}</td>";
-                        echo "<td>" . htmlspecialchars($row['used_for']) . "</td>";
-                        echo "<td class='text-muted'>" . date("d M Y", strtotime($row['date_used'])) . "</td>";
-                        echo "</tr>";
-                        $sn++;
-                    }
-                } else {
-                    echo "<tr><td colspan='5' class='text-muted' style='text-align:center;padding:24px'>
-                            No usage records found for this part.
-                          </td></tr>";
-                }
-                ?>
-            </tbody>
-        </table>
-    </div>
-
 </div>
 
 <script>
-    const searchInput = document.getElementById('searchInput');
-    const rows = document.querySelectorAll("#usageTable tbody tr");
+const searchInput = document.getElementById('searchInput');
+const rows        = document.querySelectorAll('#usageBody tr');
+const rowCount    = document.getElementById('rowCount');
 
-    searchInput.addEventListener('keyup', function () {
-        const keyword = this.value.toLowerCase();
-        rows.forEach(row => {
-            row.style.display = row.innerText.toLowerCase().includes(keyword) ? '' : 'none';
-        });
+searchInput.addEventListener('keyup', function () {
+    const keyword = this.value.toLowerCase();
+    let visible = 0;
+    rows.forEach(row => {
+        const show = row.innerText.toLowerCase().includes(keyword);
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
     });
+    rowCount.textContent = visible + ' record' + (visible !== 1 ? 's' : '');
+});
 </script>
-
 </body>
 </html>

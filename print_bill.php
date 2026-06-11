@@ -47,7 +47,6 @@ while ($row = $cartQuery->fetch_assoc()) {
             font-size: 14px;
         }
 
-        /* Screen toolbar */
         .bill-toolbar {
             display: flex;
             align-items: center;
@@ -57,12 +56,7 @@ while ($row = $cartQuery->fetch_assoc()) {
             color: #fff;
         }
 
-        .toolbar-brand {
-            font-size: 15px;
-            font-weight: 600;
-            color: #fff;
-        }
-
+        .toolbar-brand { font-size: 15px; font-weight: 600; color: #fff; }
         .toolbar-actions { display: flex; gap: 10px; }
 
         .btn-print {
@@ -92,14 +86,12 @@ while ($row = $cartQuery->fetch_assoc()) {
             gap: 6px;
         }
 
-        /* Bill wrapper */
         .bill-wrapper {
             max-width: 760px;
             margin: 32px auto;
             padding: 0 24px 60px;
         }
 
-        /* Bill card */
         .bill-card {
             background: #fff;
             border: 1px solid #e8ecf0;
@@ -108,7 +100,6 @@ while ($row = $cartQuery->fetch_assoc()) {
             box-shadow: 0 4px 20px rgba(0,0,0,0.07);
         }
 
-        /* Bill header */
         .bill-header {
             background: #1e2a3a;
             color: #fff;
@@ -131,10 +122,8 @@ while ($row = $cartQuery->fetch_assoc()) {
             letter-spacing: 0.1em;
         }
 
-        /* Bill body */
         .bill-body { padding: 28px 32px; }
 
-        /* Customer info grid */
         .info-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -152,11 +141,7 @@ while ($row = $cartQuery->fetch_assoc()) {
             margin-bottom: 3px;
         }
 
-        .info-value {
-            font-size: 14px;
-            font-weight: 500;
-            color: #1e2a3a;
-        }
+        .info-value { font-size: 14px; font-weight: 500; color: #1e2a3a; }
 
         .payment-pill {
             display: inline-block;
@@ -168,12 +153,7 @@ while ($row = $cartQuery->fetch_assoc()) {
             color: #1a56db;
         }
 
-        /* Items table */
-        .bill-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
+        .bill-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
         .bill-table thead th {
             padding: 10px 12px;
@@ -211,13 +191,8 @@ while ($row = $cartQuery->fetch_assoc()) {
             letter-spacing: 0.05em;
         }
 
-        .total-amount {
-            font-weight: 700;
-            font-size: 18px;
-            color: #1a56db;
-        }
+        .total-amount { font-weight: 700; font-size: 18px; color: #1a56db; }
 
-        /* Footer */
         .bill-footer {
             text-align: center;
             margin-top: 24px;
@@ -227,7 +202,6 @@ while ($row = $cartQuery->fetch_assoc()) {
             color: #9aa5b4;
         }
 
-        /* Print styles */
         @media print {
             body { background: #fff !important; }
             .bill-toolbar { display: none !important; }
@@ -239,33 +213,26 @@ while ($row = $cartQuery->fetch_assoc()) {
 </head>
 <body>
 
-<!-- Toolbar (hidden on print) -->
 <div class="bill-toolbar">
-    <div class="toolbar-brand"><i class="bi bi-tools"></i> Panja Trading</div>
+    <div class="toolbar-brand"><i class="bi bi-gear-wide-connected"></i> GearVault</div>
     <div class="toolbar-actions">
         <button class="btn-print" onclick="window.print()">
             <i class="bi bi-printer"></i> Print Bill
         </button>
-        <a href="customer.php" class="btn-back">
+        <a href="sales.php?tab=history" class="btn-back">
             <i class="bi bi-arrow-left"></i> Back
         </a>
     </div>
 </div>
 
-<!-- Bill -->
 <div class="bill-wrapper">
     <div class="bill-card">
-
-        <!-- Header -->
         <div class="bill-header">
-            <div class="bill-company">PANJA TRADING</div>
-            <div class="bill-subtitle">Bike Xpert — Tax Invoice</div>
+            <div class="bill-company">GEARVAULT</div>
+            <div class="bill-subtitle">Bike Workshop — Tax Invoice</div>
         </div>
 
-        <!-- Body -->
         <div class="bill-body">
-
-            <!-- Customer Info -->
             <div class="info-grid">
                 <div>
                     <div class="info-label">Customer Name</div>
@@ -295,7 +262,6 @@ while ($row = $cartQuery->fetch_assoc()) {
                 </div>
             </div>
 
-            <!-- Items Table -->
             <table class="bill-table">
                 <thead>
                     <tr>
@@ -323,11 +289,9 @@ while ($row = $cartQuery->fetch_assoc()) {
                 </tbody>
             </table>
 
-            <!-- Footer -->
             <div class="bill-footer">
-                Thank you for your business! — Panja Trading, Bike Xpert
+                Thank you for your business! — GearVault
             </div>
-
         </div>
     </div>
 </div>

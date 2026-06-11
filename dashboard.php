@@ -30,7 +30,7 @@ $recentItems = mysqli_query($conn, "SELECT part_name, category, quantity, sellin
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard – Panja Trading</title>
+    <title>Dashboard – GearVault</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
@@ -46,9 +46,6 @@ $recentItems = mysqli_query($conn, "SELECT part_name, category, quantity, sellin
             <div class="topbar-title">Dashboard</div>
             <div class="topbar-actions">
                 <span class="live-badge"><span class="live-dot"></span> Live</span>
-                <a href="add_stock.php" class="btn btn-sm btn-primary">
-                    <i class="bi bi-plus-lg"></i> Add Stock
-                </a>
             </div>
         </div>
 
