@@ -4,13 +4,21 @@ session_start();
 
 $activePage = 'bikes';
 
+// ── Helper: normalize engine capacity string ───────────────
+// Removes spaces and lowercases: "349 CC" → "349cc", "184.4 cc" → "184.4cc"
+// Must be defined before any use (including AJAX handlers)
+function normalizeCC(string $cc): string {
+    return strtolower(str_replace(' ', '', trim($cc)));
+}
+
 // ── AJAX: load compatible parts for a bike ──────────────────────────────────
 if (isset($_GET['action']) && $_GET['action'] === 'get_parts') {
     $bike_id = (int)$_GET['bike_id'];
 
-    // Get bike's engine_capacity for auto-match detection
     $bikeRow = $conn->query("SELECT engine_capacity FROM bikes WHERE id=$bike_id")->fetch_assoc();
     $eng_cc  = $bikeRow['engine_capacity'] ?? '';
+    // FIX 1: normalize for comparison so "349 cc" == "349cc"
+    $eng_cc_norm = normalizeCC($eng_cc);
 
     $linked = [];
     $res = $conn->query("
@@ -21,12 +29,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_parts') {
         ORDER BY s.part_name
     ");
     while ($r = $res->fetch_assoc()) {
-        // Flag as auto-matched if the part's compatible_cc matches this bike's engine_capacity
-        $r['auto'] = (!empty($eng_cc) && !empty($r['compatible_cc']) && $r['compatible_cc'] === $eng_cc);
+        // FIX 1: normalize both sides before comparing
+        $r['auto'] = (!empty($eng_cc_norm) && !empty($r['compatible_cc']) && normalizeCC($r['compatible_cc']) === $eng_cc_norm);
         $linked[] = $r;
     }
 
-    // All stock items not already linked
     $linked_ids = array_column($linked, 'id');
     $exclude = count($linked_ids) ? implode(',', $linked_ids) : '0';
     $available = [];
@@ -47,10 +54,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_parts') {
 if (isset($_POST['action']) && $_POST['action'] === 'add_part') {
     $bike_id  = (int)$_POST['bike_id'];
     $stock_id = (int)$_POST['stock_id'];
-    $check = $conn->query("SELECT id FROM bike_parts WHERE bike_id=$bike_id AND stock_id=$stock_id");
-    if ($check->num_rows === 0) {
-        $conn->query("INSERT INTO bike_parts (bike_id, stock_id) VALUES ($bike_id, $stock_id)");
-    }
+    // FIX 2: INSERT IGNORE relies on the unique key — no need for SELECT first
+    $conn->query("INSERT IGNORE INTO bike_parts (bike_id, stock_id) VALUES ($bike_id, $stock_id)");
     echo json_encode(['ok' => true]);
     exit;
 }
@@ -70,7 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['add'])) {
         $bike_name       = trim($_POST['bike_name']);
         $brand           = trim($_POST['brand']);
-        $engine_capacity = trim($_POST['engine_capacity']);
+        // FIX 3: normalize CC before saving to bikes table
+        $engine_capacity = normalizeCC($_POST['engine_capacity']);
+
         if ($bike_name && $brand && $engine_capacity) {
             $stmt = $conn->prepare("INSERT INTO bikes (bike_name, brand, engine_capacity) VALUES (?, ?, ?)");
             $stmt->bind_param("sss", $bike_name, $brand, $engine_capacity);
@@ -78,16 +85,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $new_bike_id = $conn->insert_id;
             $stmt->close();
 
-            // Auto-link all stock parts whose compatible_cc matches engine_capacity
+            // FIX 4: normalize comparison — match stock.compatible_cc (also normalized on insert)
             $autoCount = 0;
-            $partRes = $conn->query("SELECT id FROM stock WHERE compatible_cc = '" . $conn->real_escape_string($engine_capacity) . "'");
+            $partStmt = $conn->prepare("SELECT id FROM stock WHERE LOWER(REPLACE(compatible_cc, ' ', '')) = ?");
+            $partStmt->bind_param("s", $engine_capacity);
+            $partStmt->execute();
+            $partRes = $partStmt->get_result();
             while ($pr = $partRes->fetch_assoc()) {
-                $check = $conn->query("SELECT id FROM bike_parts WHERE bike_id=$new_bike_id AND stock_id={$pr['id']}");
-                if ($check->num_rows === 0) {
-                    $conn->query("INSERT INTO bike_parts (bike_id, stock_id) VALUES ($new_bike_id, {$pr['id']})");
+                // FIX 2: INSERT IGNORE — no SELECT check needed
+                $result = $conn->query("INSERT IGNORE INTO bike_parts (bike_id, stock_id) VALUES ($new_bike_id, {$pr['id']})");
+                if ($result && $conn->affected_rows > 0) {
                     $autoCount++;
                 }
             }
+            $partStmt->close();
 
             $success = "Bike model added successfully.";
             if ($autoCount > 0) {
@@ -102,22 +113,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id              = (int)$_POST['id'];
         $bike_name       = trim($_POST['bike_name']);
         $brand           = trim($_POST['brand']);
-        $engine_capacity = trim($_POST['engine_capacity']);
+        // FIX 3: normalize CC before saving to bikes table
+        $engine_capacity = normalizeCC($_POST['engine_capacity']);
+
         $stmt = $conn->prepare("UPDATE bikes SET bike_name=?, brand=?, engine_capacity=? WHERE id=?");
         $stmt->bind_param("sssi", $bike_name, $brand, $engine_capacity, $id);
         $stmt->execute();
         $stmt->close();
 
-        // Re-sync auto-links for the new engine_capacity
-        $partRes = $conn->query("SELECT id FROM stock WHERE compatible_cc = '" . $conn->real_escape_string($engine_capacity) . "'");
+        // FIX 4: normalized re-sync on update
+        $partStmt = $conn->prepare("SELECT id FROM stock WHERE LOWER(REPLACE(compatible_cc, ' ', '')) = ?");
+        $partStmt->bind_param("s", $engine_capacity);
+        $partStmt->execute();
+        $partRes = $partStmt->get_result();
         $newLinks = 0;
         while ($pr = $partRes->fetch_assoc()) {
-            $check = $conn->query("SELECT id FROM bike_parts WHERE bike_id=$id AND stock_id={$pr['id']}");
-            if ($check->num_rows === 0) {
-                $conn->query("INSERT INTO bike_parts (bike_id, stock_id) VALUES ($id, {$pr['id']})");
+            // FIX 2: INSERT IGNORE
+            $result = $conn->query("INSERT IGNORE INTO bike_parts (bike_id, stock_id) VALUES ($id, {$pr['id']})");
+            if ($result && $conn->affected_rows > 0) {
                 $newLinks++;
             }
         }
+        $partStmt->close();
+
         $success = "Bike model updated." . ($newLinks > 0 ? " $newLinks new part(s) auto-linked." : "");
     }
 
@@ -393,6 +411,11 @@ if ($res) while ($r = $res->fetch_assoc()) $partCounts[$r['bike_id']] = $r['cnt'
 let currentBikeId = null;
 let currentEngineCC = null;
 
+// FIX 5: JS-side normalization to match PHP normalizeCC()
+function normalizeCC(cc) {
+    return (cc || '').replace(/\s/g, '').toLowerCase();
+}
+
 document.querySelectorAll('.open-parts-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         currentBikeId  = btn.dataset.bikeId;
@@ -421,8 +444,7 @@ function loadParts() {
     fetch(`bikes.php?action=get_parts&bike_id=${currentBikeId}`)
         .then(r => r.json())
         .then(data => {
-            // CC info bar
-            const bar  = document.getElementById('ccInfoBar');
+            const bar    = document.getElementById('ccInfoBar');
             const barTxt = document.getElementById('ccInfoText');
             const autoCount = data.linked.filter(p => p.auto).length;
             if (data.engine_cc) {
@@ -472,6 +494,9 @@ function renderAvailable(parts, engineCC) {
     sel.innerHTML = '<option value="">— Select a part to add —</option>' +
         parts.map(p => `<option value="${p.id}">${escHtml(p.part_name)} (${escHtml(p.category)}) — Qty: ${p.quantity}</option>`).join('');
 
+    // FIX 5: normalize both sides in JS too
+    const engNorm = normalizeCC(engineCC);
+
     tbl.innerHTML = `
         <table class="data-table" style="font-size:.83rem;">
             <thead>
@@ -486,7 +511,7 @@ function renderAvailable(parts, engineCC) {
             </thead>
             <tbody>
                 ${parts.map(p => {
-                    const ccMatch = engineCC && p.compatible_cc && p.compatible_cc === engineCC;
+                    const ccMatch = engNorm && p.compatible_cc && normalizeCC(p.compatible_cc) === engNorm;
                     return `<tr ${ccMatch ? 'style="background:#fffbea;"' : ''}>
                         <td>${escHtml(p.part_name)}</td>
                         <td>${escHtml(p.category)}</td>

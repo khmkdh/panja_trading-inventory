@@ -12,11 +12,12 @@ if ($activeTab === 'categories' && $_SERVER['REQUEST_METHOD'] === 'POST' && isse
     if (!empty($newCategory)) {
         $stmt = $conn->prepare("INSERT INTO categories (name) VALUES (?)");
         $stmt->bind_param("s", $newCategory);
-        $catMessage     = $stmt->execute() ? "Category \"" . htmlspecialchars($newCategory) . "\" added successfully." : "Error: " . $stmt->error;
-        $catMessageType = $stmt->execute() ? "success" : "error";
+        $executed       = $stmt->execute();
+        $catMessage     = $executed ? "Category \"" . htmlspecialchars($newCategory) . "\" added successfully." : "Error: " . $stmt->error;
+        $catMessageType = $executed ? "success" : "error";
         $stmt->close();
     } else {
-        $catMessage = "Category name cannot be empty.";
+        $catMessage     = "Category name cannot be empty.";
         $catMessageType = "warning";
     }
 }
@@ -49,15 +50,15 @@ if ($activeTab === 'add' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POS
         $category_name = $catRow['name'] ?? '';
 
         if (!empty($category_name)) {
-            $added_on    = date('Y-m-d');
-            // Insert into stock with compatible_cc
+            $added_on = date('Y-m-d');
             $stockInsert = $conn->prepare("INSERT INTO stock (part_name, category, quantity, purchase_price, selling_price, supplier, added_on, compatible_cc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            $stockInsert->bind_param("ssiddss s", $product_name, $category_name, $stock_units, $price_per_unit, $price_per_unit, $supplier, $added_on, $compatible_cc);
+            $stockInsert->bind_param("ssiddsss", $product_name, $category_name, $stock_units, $price_per_unit, $price_per_unit, $supplier, $added_on, $compatible_cc);
             $stockInsert->execute();
             $new_stock_id = $conn->insert_id;
             $stockInsert->close();
 
             // Auto-link to bikes with matching engine_capacity
+            $autoLinked = 0;
             if (!empty($compatible_cc)) {
                 $bikeMatch = $conn->prepare("SELECT id FROM bikes WHERE engine_capacity = ?");
                 $bikeMatch->bind_param("s", $compatible_cc);
@@ -67,15 +68,15 @@ if ($activeTab === 'add' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POS
                     $check = $conn->query("SELECT id FROM bike_parts WHERE bike_id={$brow['id']} AND stock_id=$new_stock_id");
                     if ($check->num_rows === 0) {
                         $conn->query("INSERT INTO bike_parts (bike_id, stock_id) VALUES ({$brow['id']}, $new_stock_id)");
+                        $autoLinked++;
                     }
                 }
                 $bikeMatch->close();
-                $autoLinked = $bikeRes->num_rows ?? 0;
             }
 
             $itemSuccess = "Item \"" . htmlspecialchars($product_name) . "\" added successfully!";
             if (!empty($compatible_cc)) {
-                $itemSuccess .= " Auto-linked to all {$compatible_cc} bike models.";
+                $itemSuccess .= " Auto-linked to {$autoLinked} bike(s) with {$compatible_cc} engine capacity.";
             }
             $product_name = $storage_id = $category_id = $bike_id = $variant_name = $model_year = $stock_units = $price_per_unit = $supplier = $compatible_cc = '';
         } else {
@@ -92,22 +93,23 @@ $storages   = $conn->query("SELECT id, name FROM storages");
 $categories = $conn->query("SELECT id, name FROM categories ORDER BY id");
 $bikes      = $conn->query("SELECT id, bike_name, brand, engine_capacity FROM bikes");
 
-// Distinct engine capacities for the cc datalist
 $ccList = [];
 $ccRes  = $conn->query("SELECT DISTINCT engine_capacity FROM bikes WHERE engine_capacity IS NOT NULL AND engine_capacity != '' ORDER BY engine_capacity");
 while ($r = $ccRes->fetch_assoc()) $ccList[] = $r['engine_capacity'];
 
-// Categories list for category tab
 $catList = [];
 $catRes  = $conn->query("SELECT name FROM categories ORDER BY id");
 while ($r = $catRes->fetch_assoc()) $catList[] = $r['name'];
 
-// Stock grouped by category
+// ── Stock grouped: category → part_name → variants ────────
+// Structure: $grouped[category][part_name][] = row
 $grouped = [];
-$stockAll = $conn->query("SELECT * FROM stock ORDER BY category, part_name");
-while ($r = $stockAll->fetch_assoc()) $grouped[$r['category']][] = $r;
+$stockAll = $conn->query("SELECT * FROM stock ORDER BY category, part_name, added_on ASC");
+while ($r = $stockAll->fetch_assoc()) {
+    $grouped[$r['category']][$r['part_name']][] = $r;
+}
 
-// Warehouse data
+// ── Warehouse data ─────────────────────────────────────────
 $warehouseItems = [
     1 => ['Battery','Spark Plug','Valve','Chain Spoket','Tyres','Gearing','Bulb','Gasket',
           'Injector','Air Filter','Block Key','Headlight Assembly','Tail Light Cover','Kick Lever',
@@ -127,30 +129,39 @@ foreach ($warehouseItems as $wid => $items) {
     foreach ($items as $part) $partToWarehouse[strtolower($part)] = $wid;
 }
 
-$whSearch      = $_GET['search'] ?? null;
-$selectedWhId  = $_GET['warehouse'] ?? null;
-$whStockItems  = [];
+$whSearch     = $_GET['search'] ?? null;
+$selectedWhId = $_GET['warehouse'] ?? null;
+$whStockItems = []; // raw rows for warehouse tab
 
 if ($activeTab === 'warehouse') {
     if ($whSearch) {
         $sl = strtolower(trim($whSearch));
         if (isset($partToWarehouse[$sl])) {
             $wid  = $partToWarehouse[$sl];
-            $stmt = $conn->prepare("SELECT * FROM stock WHERE LOWER(part_name) = ?");
+            $stmt = $conn->prepare("SELECT * FROM stock WHERE LOWER(part_name) = ? ORDER BY part_name, added_on ASC");
             $stmt->bind_param("s", $sl);
             $stmt->execute();
             $res = $stmt->get_result();
             while ($r = $res->fetch_assoc()) { $r['warehouse'] = $warehouseNames[$wid] ?? '—'; $whStockItems[] = $r; }
         }
     } elseif ($selectedWhId && isset($warehouseItems[$selectedWhId])) {
-        $ph   = implode(',', array_fill(0, count($warehouseItems[$selectedWhId]), '?'));
+        $ph    = implode(',', array_fill(0, count($warehouseItems[$selectedWhId]), '?'));
         $types = str_repeat('s', count($warehouseItems[$selectedWhId]));
-        $stmt = $conn->prepare("SELECT * FROM stock WHERE part_name IN ($ph)");
+        $stmt  = $conn->prepare("SELECT * FROM stock WHERE part_name IN ($ph) ORDER BY part_name, added_on ASC");
         $stmt->bind_param($types, ...$warehouseItems[$selectedWhId]);
         $stmt->execute();
         $res = $stmt->get_result();
         while ($r = $res->fetch_assoc()) $whStockItems[] = $r;
     }
+}
+
+// ── Helper: group flat rows into part_name → variants ─────
+function groupByPartName(array $rows): array {
+    $grouped = [];
+    foreach ($rows as $r) {
+        $grouped[$r['part_name']][] = $r;
+    }
+    return $grouped;
 }
 ?>
 <!DOCTYPE html>
@@ -177,7 +188,6 @@ if ($activeTab === 'warehouse') {
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
 
-        /* cc field hint */
         .cc-hint {
             font-size: .75rem; color: #6b7a8d; margin-top: 5px;
             display: flex; align-items: center; gap: 5px;
@@ -185,6 +195,33 @@ if ($activeTab === 'warehouse') {
         .cc-tag {
             display: inline-block; background: #e3f2fd; color: #1565c0;
             border-radius: 4px; padding: 1px 7px; font-size: .72rem; font-weight: 600;
+        }
+
+        /* ── Grouped stock table styles ── */
+        .part-name-cell {
+            font-weight: 600;
+            color: #1e2a3a;
+            vertical-align: middle !important;
+            border-right: 2px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .variant-row td {
+            font-size: 13px;
+        }
+        .variant-row:last-of-type td {
+            border-bottom: none;
+        }
+        .part-total-row td {
+            background: #f0f4f8;
+            font-size: 12px;
+            font-weight: 600;
+            color: #4a5568;
+            border-top: 1px dashed #cbd5e0 !important;
+            padding: 5px 10px !important;
+        }
+        /* Subtle separator between part groups */
+        .part-group-end td {
+            border-bottom: 2px solid #e2e8f0 !important;
         }
     </style>
 </head>
@@ -196,10 +233,8 @@ if ($activeTab === 'warehouse') {
         <div class="topbar">
             <div class="topbar-title">Inventory</div>
             <div class="topbar-actions">
-                <input type="text" id="stockSearch" class="search-input" placeholder="Search stock..."
-                       style="display:none">
-                <a href="add_stock.php" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-plus-lg"></i> Quick Add Stock
+                <a href="?tab=add" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-plus-lg"></i> Add Item
                 </a>
                 <a href="add_workshop_usage.php" class="btn btn-sm btn-outline-secondary">
                     <i class="bi bi-hammer"></i> Workshop Usage
@@ -225,10 +260,6 @@ if ($activeTab === 'warehouse') {
                 $lowStockCount = $lowStockRes->num_rows;
                 $lowRows       = [];
                 while ($lr = $lowStockRes->fetch_assoc()) $lowRows[] = $lr;
-
-                $groupedStock = [];
-                $allStock = $conn->query("SELECT * FROM stock ORDER BY category, part_name");
-                while ($sr = $allStock->fetch_assoc()) $groupedStock[$sr['category']][] = $sr;
             ?>
 
             <?php if ($lowStockCount > 0): ?>
@@ -240,7 +271,11 @@ if ($activeTab === 'warehouse') {
                         <?php foreach ($lowRows as $lr): ?>
                         <span style="background:#fff3cd; border:1px solid #ffe082; border-radius:20px;
                                      padding:2px 10px; font-size:11px; color:#7d5a00;">
-                            <?= htmlspecialchars($lr['part_name']) ?> <strong>(<?= $lr['quantity'] ?>)</strong>
+                            <?= htmlspecialchars($lr['part_name']) ?>
+                            <?php if (!empty($lr['compatible_cc'])): ?>
+                                <span style="font-size:10px;">(<?= htmlspecialchars($lr['compatible_cc']) ?>)</span>
+                            <?php endif; ?>
+                            <strong>(<?= $lr['quantity'] ?>)</strong>
                         </span>
                         <?php endforeach; ?>
                     </div>
@@ -256,14 +291,23 @@ if ($activeTab === 'warehouse') {
                 </div>
             </div>
 
-            <?php if (empty($groupedStock)): ?>
+            <?php if (empty($grouped)): ?>
             <div class="alert-banner" style="background:#e8f0fe; border-color:#90b4f5;">
                 <i class="bi bi-info-circle-fill" style="color:#1a56db;"></i>
                 <span style="color:#1a56db;">No stock items found. <a href="?tab=add" style="color:#1a56db; font-weight:600;">Add your first item →</a></span>
             </div>
             <?php else: ?>
-            <?php foreach ($groupedStock as $cat => $items):
-                $catLowCount = count(array_filter($items, fn($i) => (int)$i['quantity'] < 5));
+
+            <?php foreach ($grouped as $cat => $partGroups):
+                // Count total variant rows in this category for the badge
+                $totalVariants = 0;
+                $catLowCount   = 0;
+                foreach ($partGroups as $partName => $variants) {
+                    foreach ($variants as $v) {
+                        $totalVariants++;
+                        if ((int)$v['quantity'] < 5) $catLowCount++;
+                    }
+                }
             ?>
             <div class="card-section category-block">
                 <div class="card-section-header">
@@ -275,7 +319,8 @@ if ($activeTab === 'warehouse') {
                         </span>
                         <?php endif; ?>
                         <span style="font-size:11px; background:#f0f4f8; color:#6b7a8d; padding:3px 10px; border-radius:20px;">
-                            <?= count($items) ?> item<?= count($items) !== 1 ? 's' : '' ?>
+                            <?= count($partGroups) ?> part<?= count($partGroups) !== 1 ? 's' : '' ?>
+                            (<?= $totalVariants ?> variant<?= $totalVariants !== 1 ? 's' : '' ?>)
                         </span>
                     </div>
                 </div>
@@ -283,7 +328,7 @@ if ($activeTab === 'warehouse') {
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>#</th>
+                                <th style="width:32px;">#</th>
                                 <th>Part Name</th>
                                 <th>Compatible CC</th>
                                 <th>Quantity</th>
@@ -296,36 +341,80 @@ if ($activeTab === 'warehouse') {
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($items as $i => $item):
+                        <?php
+                        $partIndex = 1;
+                        $partNames = array_keys($partGroups);
+                        $lastPartName = end($partNames);
+
+                        foreach ($partGroups as $partName => $variants):
+                            $variantCount = count($variants);
+                            $totalQty     = array_sum(array_column($variants, 'quantity'));
+                            $isLastPart   = ($partName === $lastPartName);
+
+                            foreach ($variants as $vIdx => $item):
                                 $qty  = (int)$item['quantity'];
                                 $pill = $qty === 0
                                     ? '<span class="pill pill-out">Out</span>'
                                     : ($qty < 5 ? '<span class="pill pill-low">Low</span>' : '<span class="pill pill-ok">In Stock</span>');
-                            ?>
-                            <tr class="stock-row">
-                                <td><?= $i + 1 ?></td>
-                                <td class="item-name"><?= htmlspecialchars($item['part_name']) ?></td>
-                                <td>
-                                    <?php if (!empty($item['compatible_cc'])): ?>
-                                    <span class="cc-tag"><?= htmlspecialchars($item['compatible_cc']) ?></span>
-                                    <?php else: ?>
-                                    <span style="color:#bbb; font-size:.8rem;">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?= $qty ?></td>
-                                <td><?= $pill ?></td>
-                                <td>₹<?= number_format($item['purchase_price'], 2) ?></td>
-                                <td>₹<?= number_format($item['selling_price'], 2) ?></td>
-                                <td><?= htmlspecialchars($item['supplier'] ?? '—') ?></td>
-                                <td><?= date('d M Y', strtotime($item['added_on'])) ?></td>
-                                <td>
-                                    <a href="workshop_usage.php?part_id=<?= $item['id'] ?>"
-                                       class="icon-btn" title="View Workshop Usage">
-                                        <i class="bi bi-eye"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
+                                $isFirstVariant = ($vIdx === 0);
+                                $isLastVariant  = ($vIdx === $variantCount - 1);
+                        ?>
+                        <tr class="stock-row variant-row <?= ($isLastVariant && !$isLastPart) ? 'part-group-end' : '' ?>">
+                            <?php if ($isFirstVariant): ?>
+                            <!-- Part name cell spans all variants of this part -->
+                            <td rowspan="<?= $variantCount ?>" style="text-align:center; vertical-align:middle; color:#9aa5b4; font-size:12px; border-right:1px solid #e2e8f0;">
+                                <?= $partIndex ?>
+                            </td>
+                            <td rowspan="<?= $variantCount ?>" class="part-name-cell">
+                                <?= htmlspecialchars($partName) ?>
+                                <?php if ($variantCount > 1): ?>
+                                <div style="font-size:11px; font-weight:400; color:#9aa5b4; margin-top:2px;">
+                                    <?= $variantCount ?> variants
+                                </div>
+                                <?php endif; ?>
+                            </td>
+                            <?php endif; ?>
+
+                            <td>
+                                <?php if (!empty($item['compatible_cc'])): ?>
+                                <span class="cc-tag"><?= htmlspecialchars($item['compatible_cc']) ?></span>
+                                <?php else: ?>
+                                <span style="color:#bbb; font-size:.8rem;">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><?= $qty ?></td>
+                            <td><?= $pill ?></td>
+                            <td>₹<?= number_format($item['purchase_price'], 2) ?></td>
+                            <td>₹<?= number_format($item['selling_price'], 2) ?></td>
+                            <td><?= htmlspecialchars($item['supplier'] ?? '—') ?></td>
+                            <td><?= date('d M Y', strtotime($item['added_on'])) ?></td>
+                            <td>
+                                <a href="workshop_usage.php?part_id=<?= $item['id'] ?>"
+                                   class="icon-btn" title="View Workshop Usage">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+
+                        <?php if ($variantCount > 1): ?>
+                        <!-- Total row shown only when a part has multiple CC variants -->
+                        <tr class="part-total-row <?= !$isLastPart ? 'part-group-end' : '' ?>">
+                            <td colspan="2"></td>
+                            <td colspan="2">
+                                <i class="bi bi-stack" style="margin-right:4px;"></i>
+                                Total Stock: <strong><?= $totalQty ?> units</strong>
+                            </td>
+                            <td colspan="6" style="color:#9aa5b4; font-weight:400;">
+                                across <?= $variantCount ?> CC variants
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+
+                        <?php
+                            $partIndex++;
+                        endforeach;
+                        ?>
                         </tbody>
                     </table>
                 </div>
@@ -540,7 +629,8 @@ if ($activeTab === 'warehouse') {
                     <?php else: ?>
                     <div style="display:flex; flex-wrap:wrap; gap:8px;">
                         <?php foreach ($catList as $cat):
-                            $itemCount = count($grouped[$cat] ?? []);
+                            // count unique part names in this category
+                            $partCount = count($grouped[$cat] ?? []);
                             $isNew = ($cat === $newCategory);
                         ?>
                         <div style="display:flex; align-items:center; gap:6px;
@@ -549,7 +639,7 @@ if ($activeTab === 'warehouse') {
                                     border-radius:8px; padding:6px 12px; font-size:13px;">
                             <i class="bi bi-tag" style="color:<?= $isNew ? '#1a56db' : '#6b7a8d' ?>;"></i>
                             <span style="font-weight:500; color:<?= $isNew ? '#1a56db' : '#1e2a3a' ?>"><?= htmlspecialchars($cat) ?></span>
-                            <span style="font-size:11px; color:#9aa5b4; margin-left:2px;"><?= $itemCount ?> item<?= $itemCount !== 1 ? 's' : '' ?></span>
+                            <span style="font-size:11px; color:#9aa5b4; margin-left:2px;"><?= $partCount ?> part<?= $partCount !== 1 ? 's' : '' ?></span>
                             <?php if ($isNew): ?>
                             <span style="font-size:10px; background:#1a56db; color:#fff; padding:1px 7px; border-radius:20px; margin-left:2px;">New</span>
                             <?php endif; ?>
@@ -609,7 +699,11 @@ if ($activeTab === 'warehouse') {
                 </div>
             </div>
 
-            <?php if (!empty($whStockItems)): ?>
+            <?php if (!empty($whStockItems)):
+                // Group warehouse results by part name too
+                $whGrouped = groupByPartName($whStockItems);
+                $totalWhVariants = count($whStockItems);
+            ?>
             <div class="card-section">
                 <div class="card-section-header">
                     <span class="section-title">
@@ -619,38 +713,102 @@ if ($activeTab === 'warehouse') {
                             <i class="bi bi-search"></i> Results for "<?= htmlspecialchars($whSearch) ?>"
                         <?php endif; ?>
                     </span>
-                    <span style="font-size:12px; color:#6b7a8d;"><?= count($whStockItems) ?> item<?= count($whStockItems)!==1?'s':'' ?></span>
+                    <span style="font-size:12px; color:#6b7a8d;">
+                        <?= count($whGrouped) ?> part<?= count($whGrouped) !== 1 ? 's' : '' ?>
+                        (<?= $totalWhVariants ?> variant<?= $totalWhVariants !== 1 ? 's' : '' ?>)
+                    </span>
                 </div>
                 <div class="table-responsive">
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>#</th><th>Part Name</th><th>Category</th><th>Qty</th>
-                                <th>Status</th><th>Purchase</th><th>Selling</th><th>Added On</th>
+                                <th>#</th>
+                                <th>Part Name</th>
+                                <th>Compatible CC</th>
+                                <th>Category</th>
+                                <th>Qty</th>
+                                <th>Status</th>
+                                <th>Purchase</th>
+                                <th>Selling</th>
+                                <th>Supplier</th>
+                                <th>Added On</th>
                                 <?php if ($whSearch): ?><th>Warehouse</th><?php endif; ?>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($whStockItems as $i => $item):
-                                $qty = (int)$item['quantity'];
-                                $pill = $qty===0 ? '<span class="pill pill-out">Out</span>' : ($qty<5 ? '<span class="pill pill-low">Low</span>' : '<span class="pill pill-ok">In Stock</span>');
-                            ?>
-                            <tr>
-                                <td><?= $i+1 ?></td>
-                                <td class="item-name"><?= htmlspecialchars($item['part_name']) ?></td>
-                                <td><?= htmlspecialchars($item['category']) ?></td>
-                                <td><?= $qty ?></td>
-                                <td><?= $pill ?></td>
-                                <td>₹<?= number_format($item['purchase_price'],2) ?></td>
-                                <td>₹<?= number_format($item['selling_price'],2) ?></td>
-                                <td><?= date('d M Y', strtotime($item['added_on'])) ?></td>
-                                <?php if ($whSearch): ?><td><?= htmlspecialchars($item['warehouse']) ?></td><?php endif; ?>
-                            </tr>
-                            <?php endforeach; ?>
+                        <?php
+                        $whPartIndex  = 1;
+                        $whPartNames  = array_keys($whGrouped);
+                        $whLastPart   = end($whPartNames);
+
+                        foreach ($whGrouped as $whPartName => $whVariants):
+                            $whVarCount  = count($whVariants);
+                            $whTotalQty  = array_sum(array_column($whVariants, 'quantity'));
+                            $whIsLast    = ($whPartName === $whLastPart);
+
+                            foreach ($whVariants as $wvIdx => $item):
+                                $qty  = (int)$item['quantity'];
+                                $pill = $qty === 0
+                                    ? '<span class="pill pill-out">Out</span>'
+                                    : ($qty < 5 ? '<span class="pill pill-low">Low</span>' : '<span class="pill pill-ok">In Stock</span>');
+                                $isFirst = ($wvIdx === 0);
+                                $isLast  = ($wvIdx === $whVarCount - 1);
+                        ?>
+                        <tr class="variant-row <?= ($isLast && !$whIsLast) ? 'part-group-end' : '' ?>">
+                            <?php if ($isFirst): ?>
+                            <td rowspan="<?= $whVarCount ?>" style="text-align:center; vertical-align:middle; color:#9aa5b4; font-size:12px; border-right:1px solid #e2e8f0;">
+                                <?= $whPartIndex ?>
+                            </td>
+                            <td rowspan="<?= $whVarCount ?>" class="part-name-cell">
+                                <?= htmlspecialchars($whPartName) ?>
+                                <?php if ($whVarCount > 1): ?>
+                                <div style="font-size:11px; font-weight:400; color:#9aa5b4; margin-top:2px;">
+                                    <?= $whVarCount ?> variants
+                                </div>
+                                <?php endif; ?>
+                            </td>
+                            <?php endif; ?>
+
+                            <td>
+                                <?php if (!empty($item['compatible_cc'])): ?>
+                                <span class="cc-tag"><?= htmlspecialchars($item['compatible_cc']) ?></span>
+                                <?php else: ?>
+                                <span style="color:#bbb; font-size:.8rem;">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><?= htmlspecialchars($item['category']) ?></td>
+                            <td><?= $qty ?></td>
+                            <td><?= $pill ?></td>
+                            <td>₹<?= number_format($item['purchase_price'], 2) ?></td>
+                            <td>₹<?= number_format($item['selling_price'], 2) ?></td>
+                            <td><?= htmlspecialchars($item['supplier'] ?? '—') ?></td>
+                            <td><?= date('d M Y', strtotime($item['added_on'])) ?></td>
+                            <?php if ($whSearch): ?><td><?= htmlspecialchars($item['warehouse'] ?? '—') ?></td><?php endif; ?>
+                        </tr>
+                        <?php endforeach; ?>
+
+                        <?php if ($whVarCount > 1): ?>
+                        <tr class="part-total-row <?= !$whIsLast ? 'part-group-end' : '' ?>">
+                            <td colspan="2"></td>
+                            <td colspan="2">
+                                <i class="bi bi-stack" style="margin-right:4px;"></i>
+                                Total Stock: <strong><?= $whTotalQty ?> units</strong>
+                            </td>
+                            <td colspan="<?= $whSearch ? 7 : 6 ?>" style="color:#9aa5b4; font-weight:400;">
+                                across <?= $whVarCount ?> CC variants
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+
+                        <?php
+                            $whPartIndex++;
+                        endforeach;
+                        ?>
                         </tbody>
                     </table>
                 </div>
             </div>
+
             <?php elseif ($whSearch): ?>
             <div class="alert-banner" style="background:#fce8e8; border-color:#f5c6c6;">
                 <i class="bi bi-exclamation-circle-fill" style="color:#c62828;"></i>
